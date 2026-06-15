@@ -1,21 +1,13 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl" data-theme="dark">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Usage Dashboard</title>
-
-  <link
-    href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400&display=swap"
-    rel="stylesheet"
-  />
-
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400&display=swap" rel="stylesheet" />
   <!-- Font Awesome 7 -->
-  <link
-    rel="stylesheet"
-    href="https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css"
-  />
-
+  <link rel="stylesheet" href="https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css" />
   <style>
     :root {
       --bg: #f1f5f9;
@@ -624,6 +616,13 @@
       transform: translateY(0);
     }
 
+    #qrResultText {
+      max-height: 200px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     @media (max-width: 820px) {
       .grid {
         grid-template-columns: 1fr;
@@ -657,6 +656,7 @@
     }
   </style>
 </head>
+
 <body>
   <main class="app">
     <header class="card top">
@@ -750,14 +750,16 @@
       </div>
       <img id="qrImage" class="qr-img" alt="Subscription QR">
       <p id="qrLinkText" class="meta"></p>
+      <p id="qrResultText" dir="ltr" class="meta"></p>
     </div>
   </section>
 
   <div id="toast" class="toast"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.js"></script>
 
   <script>
     const templateVars = {
-      result: "{{ .result }}",
+      result: `{{ range .result }}<span>{{ . }}</span><br>{{ end }}`,
       emails: "{{ .emails }}",
       total: "{{ .total }}",
       expire: "{{ .expire }}",
@@ -779,8 +781,24 @@
 
     function normalizeTemplateValue(value, fallbackValue) {
       if (value === null || value === undefined) return fallbackValue;
+      if (Array.isArray(value)) {
+        const items = value
+          .map(function (item) { return normalizeTemplateValue(item, ""); })
+          .filter(Boolean);
+        return items.length > 0 ? items.join("\n") : fallbackValue;
+      }
       const text = String(value).trim();
       if (!text || isTemplatePlaceholder(text)) return fallbackValue;
+      if (text[0] === "[" && text[text.length - 1] === "]") {
+        try {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            return normalizeTemplateValue(parsed, fallbackValue);
+          }
+        } catch (err) {
+          // leave as plain text if JSON parse fails
+        }
+      }
       return text;
     }
 
@@ -1142,6 +1160,7 @@
 
       document.getElementById("qrTitle").textContent = t.qrTitle;
       document.getElementById("qrLinkText").textContent = t.linkLabel + ": " + usageModel.subscriptionLink;
+      document.getElementById("qrResultText").innerHTML = usageModel.resultUri;
       document.getElementById("closeQrBtn").setAttribute("aria-label", t.closeQr);
 
       const subUrlLineEl = document.getElementById("subUrlLine");
@@ -1278,13 +1297,47 @@
       document.getElementById("totalVal").textContent = formatNumber(cap, 1) + " " + dataUnit;
     }
 
-    function getQrImageUrl(text) {
-      return "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=" + encodeURIComponent(text);
+    function createLocalQrDataUrl(text, size, margin) {
+      var container = document.createElement("div");
+      container.style.position = "fixed";
+      container.style.left = "-9999px";
+      container.style.top = "-9999px";
+      container.style.visibility = "hidden";
+      document.body.appendChild(container);
+
+      var qr = new QRCode(container, {
+        text: text,
+        width: size,
+        height: size,
+        colorDark: "#000000",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.L
+      });
+
+      var sourceCanvas = container.querySelector("canvas");
+      var dataUrl = "";
+      if (sourceCanvas) {
+        var outputSize = size + margin * 2;
+        var outputCanvas = document.createElement("canvas");
+        outputCanvas.width = outputSize;
+        outputCanvas.height = outputSize;
+        var ctx = outputCanvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, outputSize, outputSize);
+        ctx.drawImage(sourceCanvas, margin, margin, size, size);
+        dataUrl = outputCanvas.toDataURL("image/png");
+      } else {
+        var sourceImage = container.querySelector("img");
+        dataUrl = sourceImage ? sourceImage.src : "";
+      }
+
+      document.body.removeChild(container);
+      return dataUrl;
     }
 
     function openQrModal() {
       if (!usageModel.subscriptionLink) return;
-      document.getElementById("qrImage").src = getQrImageUrl(usageModel.subscriptionLink);
+      document.getElementById("qrImage").src = createLocalQrDataUrl(usageModel.subscriptionLink, 320, 8);
       document.getElementById("qrModal").classList.add("show");
       document.getElementById("qrModal").setAttribute("aria-hidden", "false");
     }
@@ -1359,4 +1412,5 @@
     setInterval(renderTime, 30000);
   </script>
 </body>
+
 </html>
